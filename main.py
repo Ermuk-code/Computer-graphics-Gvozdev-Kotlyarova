@@ -1,42 +1,137 @@
-import numpy as np
 import matplotlib.pyplot as plt
-def draw_triangle(ax, v1, v2, v3):
-    triangle = np.array([v1, v2, v3, v1])
-    ax.fill(triangle[:, 0], triangle[:, 1], edgecolor='black', alpha=0.3)
-num_sides = 6
-angle = np.linspace(0, 2 * np.pi, num_sides, endpoint=False)
-angle += np.pi / 2
-hexagon = np.array([[np.cos(a), np.sin(a)] for a in angle])
-fig, ax = plt.subplots(figsize=(8, 8))
-ax.plot(*np.append(hexagon, [hexagon[0]], axis=0).T, color='black')
-A, B, C, D, E, F = hexagon
-ax.plot([B[0], F[0]], [B[1], F[1]], color='black')
-ax.plot([C[0], E[0]], [C[1], E[1]], color='black')
-O = (B + F) / 2
-ax.plot(*O, 'o', color='black')
-ax.plot([A[0], O[0]], [A[1], O[1]], color='black')
-G = B + (O - B) / 3
-I = F - (F - O) / 3
-ax.plot([A[0], G[0]], [A[1], G[1]], 'k--')
-ax.plot([A[0], I[0]], [A[1], I[1]], 'k--')
-H = (C + E) / 2
-ax.plot(*H, 'o', color='black')
-ax.plot([H[0], D[0]], [H[1], D[1]], 'k--')
-Y = C + (H - C) / 3
-X = E - (E - H) / 3
-ax.plot([X[0], D[0]], [X[1], D[1]], color='black')
-ax.plot([Y[0], D[0]], [Y[1], D[1]], color='black')
-ax.plot([O[0], X[0]], [O[1], X[1]], color='black')
-ax.plot([O[0], Y[0]], [O[1], Y[1]], color='black')
-ax.plot([B[0], Y[0]], [B[1], Y[1]], color='black')
-ax.plot([X[0], F[0]], [X[1], F[1]], color='black')
-ax.plot([H[0], G[0]], [H[1], G[1]], 'k--')
-ax.plot([H[0], I[0]], [H[1], I[1]], 'k--')
-ax.plot([I[0], E[0]], [I[1], E[1]], 'k--')
-ax.plot([G[0], C[0]], [G[1], C[1]], 'k--')
-ax.set_aspect('equal')
-plt.xlim([-1.5, 1.5])
-plt.ylim([-1.5, 1.5])
-plt.title('Ортогональная проекция икосаэдра')
-plt.grid()
-plt.show()
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+import tkinter as tk
+
+
+def cohen_sutherland_clip(p1, p2, x_min, y_min, x_max, y_max):
+    def compute_code(x, y):
+        code = 0
+        if x < x_min:
+            code |= 1  # Код для левой стороны
+        elif x > x_max:
+            code |= 2  # Код для правой стороны
+        if y < y_min:
+            code |= 4  # Код для нижней стороны
+        elif y > y_max:
+            code |= 8  # Код для верхней стороны
+        return code
+
+    code1 = compute_code(p1[0], p1[1])
+    code2 = compute_code(p2[0], p2[1])
+    accept = False
+
+    while True:
+        if code1 == 0 and code2 == 0:
+            accept = True
+            break
+        elif (code1 & code2) != 0:
+            break
+        else:
+            code_out = code1 if code1 else code2
+            if code_out & 8:  # Верхняя граница
+                x = p1[0] + (p2[0] - p1[0]) * (y_max - p1[1]) / (p2[1] - p1[1])
+                y = y_max
+            elif code_out & 4:  # Нижняя граница
+                x = p1[0] + (p2[0] - p1[0]) * (y_min - p1[1]) / (p2[1] - p1[1])
+                y = y_min
+            elif code_out & 2:  # Правая граница
+                y = p1[1] + (p2[1] - p1[1]) * (x_max - p1[0]) / (p2[0] - p1[0])
+                x = x_max
+            elif code_out & 1:  # Левая граница
+                y = p1[1] + (p2[1] - p1[1]) * (x_min - p1[0]) / (p2[0] - p1[0])
+                x = x_min
+
+            if code_out == code1:
+                p1 = [x, y]
+                code1 = compute_code(p1[0], p1[1])
+            else:
+                p2 = [x, y]
+                code2 = compute_code(p2[0], p2[1])
+
+    return (accept, p1, p2)
+
+
+def input_segments():
+    segments = []
+    n = int(input("Введите количество отрезков: "))
+    for i in range(n):
+        x1 = float(input(f"Введите x1 для отрезка {i + 1}: "))
+        y1 = float(input(f"Введите y1 для отрезка {i + 1}: "))
+        x2 = float(input(f"Введите x2 для отрезка {i + 1}: "))
+        y2 = float(input(f"Введите y2 для отрезка {i + 1}: "))
+        segments.append(((x1, y1), (x2, y2)))
+
+    x_min, y_min, x_max, y_max = map(float, input("Введите значение для окна (x_min, y_min, x_max, y_max): ").split())
+
+    return segments, x_min, y_min, x_max, y_max
+
+
+def show_segments(segments, x_min, y_min, x_max, y_max):
+    plt.figure()
+    plt.xlim(x_min - 1, x_max + 1)
+    plt.ylim(y_min - 1, y_max + 1)
+    plt.plot([x_min, x_min, x_max, x_max, x_min],
+             [y_min, y_max, y_max, y_min, y_min], 'r-')
+
+    for segment in segments:
+        p1, p2 = segment
+        plt.plot([p1[0], p2[0]], [p1[1], p2[1]], 'b-')
+
+    plt.xlabel("X")
+    plt.ylabel("Y")
+    plt.title("Исходные отрезки")
+    plt.grid()
+    plt.axhline(0, color='black', linewidth=0.5, ls='--')
+    plt.axvline(0, color='black', linewidth=0.5, ls='--')
+    plt.show()
+
+
+def show_clipped(segments, x_min, y_min, x_max, y_max):
+    plt.figure()
+    plt.xlim(x_min - 1, x_max + 1)
+    plt.ylim(y_min - 1, y_max + 1)
+    plt.plot([x_min, x_min, x_max, x_max, x_min],
+             [y_min, y_max, y_max, y_min, y_min], 'r-')
+
+    for segment in segments:
+        p1, p2 = segment
+        accept, new_p1, new_p2 = cohen_sutherland_clip(p1, p2, x_min, y_min, x_max, y_max)
+
+        if accept:
+            plt.plot([new_p1[0], new_p2[0]], [new_p1[1], new_p2[1]], 'b-')
+        else:
+            if new_p1 and new_p2:
+                plt.plot([new_p1[0], new_p2[0]], [new_p1[1], new_p2[1]], 'g--')  # Отрисовка отсеченной части
+
+    plt.xlabel("X")
+    plt.ylabel("Y")
+    plt.title("Отсеченные отрезки")
+    plt.grid()
+    plt.axhline(0, color='black', linewidth=0.5, ls='--')
+    plt.axvline(0, color='black', linewidth=0.5, ls='--')
+    plt.show()
+
+
+def main():
+    segments, x_min, y_min, x_max, y_max = input_segments()
+
+    root = tk.Tk()
+    root.title("Cohen-Sutherland Clipping")
+
+    frame = tk.Frame(root)
+    frame.pack()
+
+    button_show_segments = tk.Button(frame, text="Показать исходные отрезки",
+                                     command=lambda: show_segments(segments, x_min, y_min, x_max, y_max))
+    button_show_segments.pack(side=tk.LEFT)
+
+    button_show_clipped = tk.Button(frame, text="Показать отсеченные отрезки",
+                                    command=lambda: show_clipped(segments, x_min, y_min, x_max, y_max))
+    button_show_clipped.pack(side=tk.LEFT)
+
+    root.mainloop()
+
+
+if __name__ == "__main__":
+    main()
+
