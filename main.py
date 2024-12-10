@@ -1,137 +1,130 @@
-import matplotlib.pyplot as plt
-from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+from PIL import Image, ImageDraw, ImageTk
+import numpy as np
+import math
 import tkinter as tk
+from tkinter import filedialog, messagebox
 
 
-def cohen_sutherland_clip(p1, p2, x_min, y_min, x_max, y_max):
-    def compute_code(x, y):
-        code = 0
-        if x < x_min:
-            code |= 1  # Код для левой стороны
-        elif x > x_max:
-            code |= 2  # Код для правой стороны
-        if y < y_min:
-            code |= 4  # Код для нижней стороны
-        elif y > y_max:
-            code |= 8  # Код для верхней стороны
-        return code
+class ImageTransformApp:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("Вариант 4 Гвоздев Котлярова")
 
-    code1 = compute_code(p1[0], p1[1])
-    code2 = compute_code(p2[0], p2[1])
-    accept = False
+        self.image = None
+        self.transformed_image = None
+        self.image_frame = tk.Label(root, text="Исходное изоражение")
+        self.image_frame.grid(row=0, column=0, padx=10, pady=10)
 
-    while True:
-        if code1 == 0 and code2 == 0:
-            accept = True
-            break
-        elif (code1 & code2) != 0:
-            break
-        else:
-            code_out = code1 if code1 else code2
-            if code_out & 8:  # Верхняя граница
-                x = p1[0] + (p2[0] - p1[0]) * (y_max - p1[1]) / (p2[1] - p1[1])
-                y = y_max
-            elif code_out & 4:  # Нижняя граница
-                x = p1[0] + (p2[0] - p1[0]) * (y_min - p1[1]) / (p2[1] - p1[1])
-                y = y_min
-            elif code_out & 2:  # Правая граница
-                y = p1[1] + (p2[1] - p1[1]) * (x_max - p1[0]) / (p2[0] - p1[0])
-                x = x_max
-            elif code_out & 1:  # Левая граница
-                y = p1[1] + (p2[1] - p1[1]) * (x_min - p1[0]) / (p2[0] - p1[0])
-                x = x_min
+        self.transformed_frame = tk.Label(root, text="Обработанное изображение")
+        self.transformed_frame.grid(row=0, column=1, padx=10, pady=10)
 
-            if code_out == code1:
-                p1 = [x, y]
-                code1 = compute_code(p1[0], p1[1])
-            else:
-                p2 = [x, y]
-                code2 = compute_code(p2[0], p2[1])
+        self.load_button = tk.Button(root, text="Загрузить изображение", command=self.load_image)
+        self.load_button.grid(row=1, column=0, pady=10)
+        self.width_label = tk.Label(root, text="Ширина нового изображения:")
+        self.width_label.grid(row=2, column=0, pady=5)
 
-    return (accept, p1, p2)
+        self.width_entry = tk.Entry(root)
+        self.width_entry.grid(row=2, column=1, pady=5)
 
+        self.height_label = tk.Label(root, text="Высота нового изображения:")
+        self.height_label.grid(row=3, column=0, pady=5)
+        self.height_entry = tk.Entry(root)
+        self.height_entry.grid(row=3, column=1, pady=5)
+        self.accept_button = tk.Button(root, text="Принять координаты", command=self.accept_dimensions)
+        self.accept_button.grid(row=4, column=0, pady=10)
+        self.create_button = tk.Button(root, text="Создать новое изображение", command=self.create_new_image)
+        self.create_button.grid(row=4, column=1, pady=5)
 
-def input_segments():
-    segments = []
-    n = int(input("Введите количество отрезков: "))
-    for i in range(n):
-        x1 = float(input(f"Введите x1 для отрезка {i + 1}: "))
-        y1 = float(input(f"Введите y1 для отрезка {i + 1}: "))
-        x2 = float(input(f"Введите x2 для отрезка {i + 1}: "))
-        y2 = float(input(f"Введите y2 для отрезка {i + 1}: "))
-        segments.append(((x1, y1), (x2, y2)))
+        self.axes_button = tk.Button(root, text="Добавить оси", command=self.draw_axes_and_function)
+        self.axes_button.grid(row=5, column=0, pady=5)
 
-    x_min, y_min, x_max, y_max = map(float, input("Введите значение для окна (x_min, y_min, x_max, y_max): ").split())
+        self.transform_button = tk.Button(root, text="Преобразование по варианту", command=self.add_fragment)
+        self.transform_button.grid(row=6, column=0, pady=5)
 
-    return segments, x_min, y_min, x_max, y_max
+        self.save_button = tk.Button(root, text="Сохранить изображение", command=self.save_result)
+        self.save_button.grid(row=6, column=1, pady=10)
 
+        self.new_image_width = None
+        self.new_image_height = None
 
-def show_segments(segments, x_min, y_min, x_max, y_max):
-    plt.figure()
-    plt.xlim(x_min - 1, x_max + 1)
-    plt.ylim(y_min - 1, y_max + 1)
-    plt.plot([x_min, x_min, x_max, x_max, x_min],
-             [y_min, y_max, y_max, y_min, y_min], 'r-')
+    def create_new_image(self):
+        self.transformed_image = Image.new('RGB', (self.new_image_width, self.new_image_height), (255, 255, 255))
+        self.display_image(self.transformed_image, self.transformed_frame)
 
-    for segment in segments:
-        p1, p2 = segment
-        plt.plot([p1[0], p2[0]], [p1[1], p2[1]], 'b-')
+    def accept_dimensions(self):
+        try:
+            width = int(self.width_entry.get())
+            height = int(self.height_entry.get())
+            self.new_image_width = width
+            self.new_image_height = height
+            messagebox.showinfo("Данные введены", f"Ширина: {width}, Высота: {height}")
+        except ValueError:
+            messagebox.showerror("Ошибка", "Пожалуйста, введите корректные целые числа.")
 
-    plt.xlabel("X")
-    plt.ylabel("Y")
-    plt.title("Исходные отрезки")
-    plt.grid()
-    plt.axhline(0, color='black', linewidth=0.5, ls='--')
-    plt.axvline(0, color='black', linewidth=0.5, ls='--')
-    plt.show()
+    def load_image(self):
+        file_path = filedialog.askopenfilename(title="Выберите изображение")
+        if file_path:
+            self.image = Image.open(file_path)
+            self.display_image(self.image, self.image_frame)
 
+    def add_fragment(self):
+        if self.image:
+            original_pixels = self.image.load()
+            new_pixels = self.transformed_image.load()
+            fragment_size = 100
 
-def show_clipped(segments, x_min, y_min, x_max, y_max):
-    plt.figure()
-    plt.xlim(x_min - 1, x_max + 1)
-    plt.ylim(y_min - 1, y_max + 1)
-    plt.plot([x_min, x_min, x_max, x_max, x_min],
-             [y_min, y_max, y_max, y_min, y_min], 'r-')
+            # Вырезаем фрагмент из центра левого нижнего угла
+            left_x = 0
+            bottom_y = self.image.height
+            # Определяем верхнюю границу фрагмента с учетом высоты фрагмента
+            top_left_y = bottom_y - fragment_size
 
-    for segment in segments:
-        p1, p2 = segment
-        accept, new_p1, new_p2 = cohen_sutherland_clip(p1, p2, x_min, y_min, x_max, y_max)
+            for y in range(fragment_size):
+                for x in range(fragment_size):
+                    original_x = left_x + x
+                    original_y = top_left_y + y
 
-        if accept:
-            plt.plot([new_p1[0], new_p2[0]], [new_p1[1], new_p2[1]], 'b-')
-        else:
-            if new_p1 and new_p2:
-                plt.plot([new_p1[0], new_p2[0]], [new_p1[1], new_p2[1]], 'g--')  # Отрисовка отсеченной части
+                    if 0 <= original_x < self.image.width and 0 <= original_y < self.image.height:
+                        # Обновите координаты для размещения в верном месте
+                        new_x = self.transformed_image.width - fragment_size + x
+                        new_y = self.transformed_image.height - fragment_size + y  # Смещаем y на размер фрагмента
 
-    plt.xlabel("X")
-    plt.ylabel("Y")
-    plt.title("Отсеченные отрезки")
-    plt.grid()
-    plt.axhline(0, color='black', linewidth=0.5, ls='--')
-    plt.axvline(0, color='black', linewidth=0.5, ls='--')
-    plt.show()
+                        if 0 <= new_x < self.transformed_image.width and 0 <= new_y < self.transformed_image.height:
+                            new_pixels[new_x, new_y] = original_pixels[original_x, original_y]
 
+            self.display_image(self.transformed_image, self.transformed_frame)
 
-def main():
-    segments, x_min, y_min, x_max, y_max = input_segments()
+    def draw_axes_and_function(self):
+        draw = ImageDraw.Draw(self.transformed_image)
+        width, height = self.transformed_image.size
 
-    root = tk.Tk()
-    root.title("Cohen-Sutherland Clipping")
+        mid_x = width // 2
+        mid_y = height // 2
+        draw.line((0, mid_y, width, mid_y), fill='black', width=2)
+        draw.line((mid_x, 0, mid_x, height), fill='black', width=2)
 
-    frame = tk.Frame(root)
-    frame.pack()
+        scale = 50
+        for x in range(-mid_x, mid_x):
+            y = int(scale * (x / scale) * math.sin(x / scale))
+            draw.point((mid_x + x, mid_y - y), fill='blue')
+        self.display_image(self.transformed_image, self.transformed_frame)
 
-    button_show_segments = tk.Button(frame, text="Показать исходные отрезки",
-                                     command=lambda: show_segments(segments, x_min, y_min, x_max, y_max))
-    button_show_segments.pack(side=tk.LEFT)
+    def display_image(self, image, frame):
+        image_copy = image.copy()
+        image_copy.thumbnail((300, 300))
+        image_copy.thumbnail((300, 300))
+        img_tk = ImageTk.PhotoImage(image_copy)
+        frame.config(image=img_tk)
+        frame.image = img_tk
 
-    button_show_clipped = tk.Button(frame, text="Показать отсеченные отрезки",
-                                    command=lambda: show_clipped(segments, x_min, y_min, x_max, y_max))
-    button_show_clipped.pack(side=tk.LEFT)
-
-    root.mainloop()
+    def save_result(self):
+        if self.transformed_image:
+            file_path = filedialog.asksaveasfilename(defaultextension=".png")
+            if file_path:
+                self.transformed_image.save(file_path)
 
 
 if __name__ == "__main__":
-    main()
-
+    root = tk.Tk()
+    app = ImageTransformApp(root)
+    root.mainloop()
