@@ -1,130 +1,97 @@
-from PIL import Image, ImageDraw, ImageTk
+import cv2
 import numpy as np
-import math
-import tkinter as tk
-from tkinter import filedialog, messagebox
+from tkinter import Tk, Button, Label, Canvas, filedialog
+from PIL import Image, ImageTk
 
+def apply_low_pass_filter(image):
+    kernel = np.array([[1, 1, 1], [1, 1, 1], [1, 1, 1]], dtype=np.float32) / 9
+    return cv2.filter2D(image, -1, kernel)
 
-class ImageTransformApp:
-    def __init__(self, root):
-        self.root = root
-        self.root.title("Вариант 4 Гвоздев Котлярова")
+def apply_high_pass_filter(image, kernel):
+    return cv2.filter2D(image, -1, kernel)
 
-        self.image = None
-        self.transformed_image = None
-        self.image_frame = tk.Label(root, text="Исходное изоражение")
-        self.image_frame.grid(row=0, column=0, padx=10, pady=10)
+def process_image_variant6():
+    global processed_image, original_image
+    if original_image is None:
+        result_label.config(text="Сначала откройте изображение!")
+        return
+    height, width, _ = original_image.shape
+    left_part = original_image[:, :width // 2]
+    right_part = original_image[:, width // 2:]
+    low_pass_left = apply_low_pass_filter(left_part)
+    processed_left = cv2.subtract(left_part, low_pass_left)
+    laplacian_kernel = np.array([[0, -1, 0], [-1, 4, -1], [0, -1, 0]], dtype=np.float32)
+    gaussian_kernel = cv2.getGaussianKernel(ksize=5, sigma=1)
+    laplacian_gaussian_kernel = np.outer(gaussian_kernel, gaussian_kernel.T)
+    high_pass_right_gaussian = apply_high_pass_filter(right_part, laplacian_gaussian_kernel)
+    processed_image = np.hstack((processed_left, high_pass_right_gaussian))
+    display_image(processed_image, result_canvas, max_width=500, max_height=300)
+    result_label.config(text="Обработка завершена!")
 
-        self.transformed_frame = tk.Label(root, text="Обработанное изображение")
-        self.transformed_frame.grid(row=0, column=1, padx=10, pady=10)
+def open_image():
+    global original_image
 
-        self.load_button = tk.Button(root, text="Загрузить изображение", command=self.load_image)
-        self.load_button.grid(row=1, column=0, pady=10)
-        self.width_label = tk.Label(root, text="Ширина нового изображения:")
-        self.width_label.grid(row=2, column=0, pady=5)
+    file_path = filedialog.askopenfilename(filetypes=[("Image Files", "*.jpg;*.png;*.bmp;*.tiff")])
+    if not file_path:
+        return
 
-        self.width_entry = tk.Entry(root)
-        self.width_entry.grid(row=2, column=1, pady=5)
+    try:
+        original_image = cv2.imread(file_path)
+        if original_image is None:
+            raise ValueError("Ошибка загрузки изображения. Формат может быть неподдерживаемым.")
 
-        self.height_label = tk.Label(root, text="Высота нового изображения:")
-        self.height_label.grid(row=3, column=0, pady=5)
-        self.height_entry = tk.Entry(root)
-        self.height_entry.grid(row=3, column=1, pady=5)
-        self.accept_button = tk.Button(root, text="Принять координаты", command=self.accept_dimensions)
-        self.accept_button.grid(row=4, column=0, pady=10)
-        self.create_button = tk.Button(root, text="Создать новое изображение", command=self.create_new_image)
-        self.create_button.grid(row=4, column=1, pady=5)
+        display_image(original_image, original_canvas, max_width=500, max_height=300)
+        result_label.config(text="Изображение успешно загружено!")
+    except Exception as e:
+        result_label.config(text=f"Ошибка: {e}")
 
-        self.axes_button = tk.Button(root, text="Добавить оси", command=self.draw_axes_and_function)
-        self.axes_button.grid(row=5, column=0, pady=5)
+def save_image():
+    global processed_image
 
-        self.transform_button = tk.Button(root, text="Преобразование по варианту", command=self.add_fragment)
-        self.transform_button.grid(row=6, column=0, pady=5)
+    if processed_image is None:
+        result_label.config(text="Сначала обработайте изображение!")
+        return
+    file_path = filedialog.asksaveasfilename(defaultextension=".jpg",
+                                             filetypes=[("JPEG Image", "*.jpg"), ("PNG Image", "*.png"), ("BMP Image", "*.bmp")])
+    if not file_path:
+        return
 
-        self.save_button = tk.Button(root, text="Сохранить изображение", command=self.save_result)
-        self.save_button.grid(row=6, column=1, pady=10)
+    try:
+        cv2.imwrite(file_path, processed_image)
+        result_label.config(text=f"Результат сохранен: {file_path}")
+    except Exception as e:
+        result_label.config(text=f"Ошибка сохранения: {e}")
 
-        self.new_image_width = None
-        self.new_image_height = None
+def display_image(image, canvas, max_width, max_height):
+    height, width, _ = image.shape
+    scale = min(max_width / width, max_height / height, 1.0)
+    new_width = int(width * scale)
+    new_height = int(height * scale)
+    resized_image = cv2.resize(image, (new_width, new_height))
+    image_rgb = cv2.cvtColor(resized_image, cv2.COLOR_BGR2RGB)
+    image_pil = Image.fromarray(image_rgb)
+    image_tk = ImageTk.PhotoImage(image_pil)
+    canvas.delete("all")
+    canvas.image = image_tk
+    canvas.config(width=new_width, height=new_height)
+    canvas.create_image(0, 0, anchor="nw", image=image_tk)
 
-    def create_new_image(self):
-        self.transformed_image = Image.new('RGB', (self.new_image_width, self.new_image_height), (255, 255, 255))
-        self.display_image(self.transformed_image, self.transformed_frame)
-
-    def accept_dimensions(self):
-        try:
-            width = int(self.width_entry.get())
-            height = int(self.height_entry.get())
-            self.new_image_width = width
-            self.new_image_height = height
-            messagebox.showinfo("Данные введены", f"Ширина: {width}, Высота: {height}")
-        except ValueError:
-            messagebox.showerror("Ошибка", "Пожалуйста, введите корректные целые числа.")
-
-    def load_image(self):
-        file_path = filedialog.askopenfilename(title="Выберите изображение")
-        if file_path:
-            self.image = Image.open(file_path)
-            self.display_image(self.image, self.image_frame)
-
-    def add_fragment(self):
-        if self.image:
-            original_pixels = self.image.load()
-            new_pixels = self.transformed_image.load()
-            fragment_size = 100
-
-            # Вырезаем фрагмент из центра левого нижнего угла
-            left_x = 0
-            bottom_y = self.image.height
-            # Определяем верхнюю границу фрагмента с учетом высоты фрагмента
-            top_left_y = bottom_y - fragment_size
-
-            for y in range(fragment_size):
-                for x in range(fragment_size):
-                    original_x = left_x + x
-                    original_y = top_left_y + y
-
-                    if 0 <= original_x < self.image.width and 0 <= original_y < self.image.height:
-                        # Обновите координаты для размещения в верном месте
-                        new_x = self.transformed_image.width - fragment_size + x
-                        new_y = self.transformed_image.height - fragment_size + y  # Смещаем y на размер фрагмента
-
-                        if 0 <= new_x < self.transformed_image.width and 0 <= new_y < self.transformed_image.height:
-                            new_pixels[new_x, new_y] = original_pixels[original_x, original_y]
-
-            self.display_image(self.transformed_image, self.transformed_frame)
-
-    def draw_axes_and_function(self):
-        draw = ImageDraw.Draw(self.transformed_image)
-        width, height = self.transformed_image.size
-
-        mid_x = width // 2
-        mid_y = height // 2
-        draw.line((0, mid_y, width, mid_y), fill='black', width=2)
-        draw.line((mid_x, 0, mid_x, height), fill='black', width=2)
-
-        scale = 50
-        for x in range(-mid_x, mid_x):
-            y = int(scale * (x / scale) * math.sin(x / scale))
-            draw.point((mid_x + x, mid_y - y), fill='blue')
-        self.display_image(self.transformed_image, self.transformed_frame)
-
-    def display_image(self, image, frame):
-        image_copy = image.copy()
-        image_copy.thumbnail((300, 300))
-        image_copy.thumbnail((300, 300))
-        img_tk = ImageTk.PhotoImage(image_copy)
-        frame.config(image=img_tk)
-        frame.image = img_tk
-
-    def save_result(self):
-        if self.transformed_image:
-            file_path = filedialog.asksaveasfilename(defaultextension=".png")
-            if file_path:
-                self.transformed_image.save(file_path)
-
-
-if __name__ == "__main__":
-    root = tk.Tk()
-    app = ImageTransformApp(root)
-    root.mainloop()
+root = Tk()
+root.title("Фильтрация изображения - Вариант 6")
+original_image = None
+processed_image = None
+open_button = Button(root, text="Открыть изображение", command=open_image)
+open_button.pack()
+process_button = Button(root, text="Обработать изображение", command=process_image_variant6)
+process_button.pack()
+save_button = Button(root, text="Сохранить результат", command=save_image)
+save_button.pack()
+original_label = Label(root, text="Исходное изображение:")
+original_label.pack()
+original_canvas = Canvas(root, width=500, height=300, bg="gray")
+original_canvas.pack()
+result_label = Label(root, text="Результат:")
+result_label.pack()
+result_canvas = Canvas(root, width=500, height=300, bg="gray")
+result_canvas.pack()
+root.mainloop()
